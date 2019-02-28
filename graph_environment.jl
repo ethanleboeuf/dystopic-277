@@ -1,87 +1,72 @@
-using LightGraphs, MetaGraphs,Compose, Cairo, Fontconfig
-using LinearAlgebra, CSV, DataFrames, GraphPlot, Colors
+using LightGraphs, MetaGraphs, Compose
+using DataFrames, GraphPlot, Colors
 
-function main()
+"""
+    read_graph
 
-# Assuming all nodes have edges between of 1 meter (ignore Diagonal being longer for now)
-numCW = 8; # number of discrete nodes widthwise
-numCL = 8; # number of discrete nodes lengthwise
-
-numCellsTotal = numCL*numCW
-global prob_weights = CSV.read("weightsSmall.csv")
-prob_weights = convert(Matrix{Float64}, prob_weights[:,1:3])
-for ii = 1:size(prob_weights,1)
-    prob_weights[ii,1] = round(Int,prob_weights[ii,1])
-    prob_weights[ii,2] = round(Int,prob_weights[ii,2])
-end
-
-global mg = SimpleGraph(numCellsTotal)
-mg = MetaGraph(mg)
-cellC = 1  #initialize counter
-
-# Adding edges to create a gridlike graph/environment
-for ii = 1:numCL
-    for jj = 1:numCW
-        # Vertical Adjacent Cells
-        if ii == 1
-            add_edge!(mg,cellC,cellC+numCW)
-        elseif ii == numCL
-            add_edge!(mg,cellC,cellC-numCW)
-        else
-            add_edge!(mg,cellC,cellC+numCW)
-            add_edge!(mg,cellC,cellC-numCW)
-        end
-        # Horizontal Adjacent Cells
-        if jj == 1
-            add_edge!(mg,cellC,cellC+1)
-        elseif jj == numCW
-            add_edge!(mg,cellC,cellC-1)
-        else
-            add_edge!(mg,cellC,cellC+1)
-            add_edge!(mg,cellC,cellC-1)
-        end
-        # Diagonal Adjacent Cells
-        if jj == 1
-            add_edge!(mg,cellC,cellC+numCW+1)
-            if ii > 1
-                add_edge!(mg,cellC,cellC-numCW+1)
-            end
-        elseif jj == numCW
-            add_edge!(mg,cellC,cellC+numCW-1)
-            if ii > 1
-                add_edge!(mg,cellC,cellC-numCW-1)
-            end
-        else
-            add_edge!(mg,cellC,cellC+numCW+1)
-            add_edge!(mg,cellC,cellC+numCW-1)
-            if ii > 1
-                add_edge!(mg,cellC,cellC-numCW-1)
-                add_edge!(mg,cellC,cellC-numCW+1)
-            end
-        end
-        cellC = cellC + 1 #iterate to next cell
+Reads a comma delimitted text file where each line represents: `source, destination, weight` for each edge.
+"""
+function read_graph(filename)
+    f = open(filename)
+    s = readlines(f)
+    srcs = Vector{Int}(undef, length(s))
+    dsts = Vector{Int}(undef, length(s))
+    wgts = Vector{Float64}(undef, length(s))
+    for (i, line) in enumerate(s)
+        spl = split(line, ",")
+        srcs[i] = parse(Int64, spl[1])
+        dsts[i] = parse(Int64, spl[2])
+        wgts[i] = parse(Float64, spl[3])
     end
-end
-line_color = []
-# Assigning weights to the edges
-counter = 1;
-for edge in edges(mg)
-    src_node = src(edge)
-    dst_node = dst(edge)
-    a = [src_node dst_node]
-    row_check = Int[a == [round(Int,prob_weights[ii,1]) round(Int,prob_weights[ii,2])] for ii =1:size(prob_weights,1) ]
-    row_idx = findall(x->x==1,row_check)
-    set_prop!(mg,edge,:weight,prob_weights[row_idx,3]) # assignging weight
-    val = prob_weights[row_idx,3][1]
-    # Creating vector of colors for the edges, first color is the one with
-    # higher probability on the graph
-    push!(line_color,weighted_color_mean(val, colorant"white", colorant"black"))
-    counter = counter + 1
+    return construct_graph(srcs, dsts, wgts)
 end
 
-nodelabel = collect(1:cellC-1)
-layout=(args...)->spring_layout(args...; C=.9)
-draw(PNG("test-graph.png", 16cm, 16cm), gplot(mg,edgestrokec=line_color,nodelabel=nodelabel))
+"""
+    construct_graph(src, dst, wgt)
+
+Takes in three vectors (sources, destinations, weights) and constructs a MetaGraph out of them.
+"""
+function construct_graph(srcs, dsts, wgts)
+    # the maximal value in sources and destinations is the number of nodes
+    n = maximum([srcs; dsts])
+    G = MetaGraph(SimpleGraph(n))
+    defaultweight!(G, 0.0)
+    # For each src=>dst, wgt, create a weighted edge for it
+    for (s,d,w) in zip(srcs, dsts, wgts)
+        # ignore zero weight edges, since the default is 0 anyway
+        if w > 0
+            add_edge!(G, s, d)
+            set_prop!(G, s, d, :weight, w)
+        end
+    end
+    return G
 end
 
-main()
+"""
+    plot_graph(G, fn)
+
+Save the graph `G` as an SVG in the local directory with the filename `fn`.
+Uses the default `spring_layout` layout.
+"""
+function plot_graph(G, fn)
+    mn, mx = extrema(weights(G))
+    line_colors = map(edges(G)) do ε
+        src, dst = Tuple(ε)
+        weighted_color_mean(weights(G)[src, dst], colorant"white", colorant"black")
+    end
+
+    nodelabel = 1:nv(G)
+    p = gplot(G, edgestrokec = line_colors, nodelabel = nodelabel)
+    draw(SVG(fn, 10cm, 10cm), p)
+end
+
+
+"""
+    main
+
+I don't believe in the concept of "main" functions, but whatever.
+"""
+function main()
+    G = read_graph("weightsSmall.csv")
+    plot_graph(G, "test-graph.svg")
+end
