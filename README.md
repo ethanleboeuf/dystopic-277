@@ -4,7 +4,7 @@
 
  - __Patrol__: scan a region as best as possible
    - Define successful detection
- - __Pursuit__: kill kill kill. No survivors
+ - __Pursuit__: kill kill kill. No survivors(leave one survivor to tell their friends of the horrors)
    - Define successful capture
    - Define failure condition
  
