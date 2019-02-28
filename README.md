@@ -10,8 +10,8 @@
  
  ## Necessary tools:
  
-  - Environment representation (options)
-      1) A graph with underlying geometry
+  - Environment representation (options) 
+      1) A graph with underlying geometry (Ethan uploaded file for this - working on tool to plot geometry from it tomorrow)
       2) Geometry with an underlying graph
       3) A graph with no associated geometry and some extra plotting machinery
     
