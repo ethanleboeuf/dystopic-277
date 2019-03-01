@@ -2,14 +2,14 @@ clear all
 clc
 
 % Boyd & Vandenberghe "Convex Optimization"
-% Joëlle Skaf - 09/26/05
+% JoÃ«lle Skaf - 09/26/05
 %
 % The 'fastest mixing Markov chain problem' is to find a transition
 % probability matrix P on a graph E that minimizes the mixing rate r, where
 % r = max{ lambda_2, -lambda_n } with lambda_1>=...>=lambda_n being the
 % eigenvalues of P.
 
-
+% you need to have the cvx package to run this
 
 % runs in linear time with respect to adding nodes. 
 
