@@ -29,7 +29,7 @@ So anyway you should write functions to do small tasks and then put them togethe
   - Environment representation (options) 
       1) A graph with underlying geometry (Ethan uploaded file for this - working on tool to plot geometry from it tomorrow)
       2) Geometry with an underlying graph
-      3) __A graph with no associated geometry and some extra plotting machinery__ -- looks like we're going with this option
+      3) __A graph with no associated geometry and some extra plotting machinery__ -- looks like we're going with this option -- I would say it's more like #1 --jv
     
  - Graph traversal
    - Dynamics
