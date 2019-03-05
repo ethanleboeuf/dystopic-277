@@ -5,55 +5,14 @@ include("graph_environment.jl")
 # averaged over all pairs of nodes is minimized.
 
 """
-    weighted_adjacency(A)
-
-Takes in Adjacency matrix and outputs the altered weighted adjacent matrices
-"""
-function weighted_adjacency(A)
-
-    # FUTURE IMPLEMENTATION: Will take A in, use convex to get the weighting, and
-    # and then go on. For now, will just read it in.
-
-    # Graph with Optimal edge probabilities
-    M = read_graph("C:\\Users\\Ethan\\Documents\\GitHub\\dystopic-277\\weightsLarge.csv")
-    n = nv(M)
-    k = n^(1/2);
-
-    # this is the weighted adjacency matrix
-    weightedA = zeros(n,n)
-    for edge in edges(M)
-        weightedA[src(edge),dst(edge)] = get_prop(M,edge,:weight)
-        weightedA[dst(edge),src(edge)] = get_prop(M,edge,:weight)
-    end
-
-    # This alters the weighted adjacency matrix so it is easier to randomly
-    # sample an edge later. Sometimes the rows don't add exactly to 1 because
-    # of the rounding. If you get a running error, this is why. Rerun and it
-    # should be fine.
-    weightedB = zeros(n,n);
-    for i = 1:n
-       previous = 0
-       for j = 1:n
-           if weightedA[i, j] != 0
-               weightedB[i,j] = previous + weightedA[i, j]
-               previous = weightedB[i, j]
-           end
-       end
-    end
-    return weightedB
-end
-
-"""
-    find_path(time,startNode,A)
+    find_path(time,startNode,mg)
 
 Takes in amount of time to simulate, t, the initial node, node0, and the
-adjacency matrix, A, and outputs the calculated travel path
+MetaGraph, mg, and outputs the calculated travel path
 """
-function find_path(time_end,startNode,A)
-    #Standin
-    M = read_graph("C:\\Users\\Ethan\\Documents\\GitHub\\dystopic-277\\weightsLarge.csv")
-    # weightedB = weighted_adjacency(A) I think we can get rid of needing
-    # weighted_adjacency completely
+function find_path(time_end,startNode,mg)
+
+    M = mg
     n = nv(M)
     k = sqrt(n)
     # path in node form
@@ -61,7 +20,6 @@ function find_path(time_end,startNode,A)
     Path[1] = startNode;
     for t = 2:time_end
         x = rand();
-        sumcheck = 0
         num_neighbors = length(neighbors(M,Int(Path[t-1])))
         prob_choices = zeros(num_neighbors,1)
         for neighbor in enumerate(neighbors(M,Int(Path[t-1])))
@@ -71,12 +29,6 @@ function find_path(time_end,startNode,A)
                 break
             end
         end
-       #  for j = 1:n
-       #      if x < weightedB[Int(Path[t-1]), j]
-       #          Path[t] = j
-       #          break
-       #     end
-       # end
     end
 
     # path in x and y coordinates
@@ -93,13 +45,14 @@ function find_path(time_end,startNode,A)
     return travel
 end
 """
-    plot_path(travel,fn,A)
+    plot_path(travel,fn,mg)
 
-Plots the travel path given and saves it to the given file location
+Plots the travel path given (also needs the overall MetaGraph) and saves it to
+the given file location
 """
-function plot_path(travel,fn,A)
-    # M stuff is temp
-    M = read_graph("C:\\Users\\Ethan\\Documents\\GitHub\\dystopic-277\\weightsLarge.csv")
+function plot_path(travel,fn,mg)
+    pyplot()
+    M = mg
     n = nv(M)
     k = sqrt(n)
     time_end = size(travel,1)
@@ -127,7 +80,7 @@ I don't believe in the concept of "main" functions, but whatever.
 """
 function main()
     time_end = 1000
-    startNode = 465
+    startNode = 32
     A = []
     path = find_path(time_end,startNode,A)
     plot_path(path,"ethantest.png",A)
