@@ -1,6 +1,46 @@
-using Plots, Colors, PyCall, Compose
+using Plots, Colors, PyCall, Compose,LazySets
 pyplot()
 include("adjacency_generator.jl")
+
+
+function set2grid(set::Hyperrectangle)
+    l = low(set)
+    u = high(set)
+    grid = base_grid((u-l .+ 1)...)
+    # grid = map(x-> x.-[1,1],grid)
+    return grid
+end
+
+
+function grid_minus_obstacles(Env::Hyperrectangle,obs)
+    grid_env = set2grid(Env)
+    grid_obs = []
+    for ob in obs
+        push!(grid_obs,set2grid(ob))
+    end
+end
+
+"""
+    visible2(node,all_nodes,R)
+
+Takes in the current node, all nodes, and the sensor radius (integer) and outputs the
+visible nodes from the current node, V_x
+"""
+function visibile2(node,all_nodes,R)
+    all_nodes = base_adjacency_grid(5,5) #FOR TESTING ONLY. Will just give A later once
+    # obstacles are integrated
+    pyplot()
+    Env = HyperRectangle([3 3],[3 3])
+    finalplot = plot(Env)
+    gui()
+    V_x = []
+    outer_x = []
+    dirs_card = [[1,0],[0,1],[-1,0],[0,-1]]
+    png(finalplot,"test_visible.png")
+    return V_x,outer_x
+end
+
+
 
 """
     visible(node,all_nodes,R)
@@ -104,7 +144,7 @@ end
 """
 function plot_visible(all_nodes,node)
     all_nodes = base_adjacency_grid(7,7)
-    V_xall = all_visible([],1) #FOR TESTING ONLY. Will just give A later once
+    V_xall = all_visible([],2) #FOR TESTING ONLY. Will just give A later once
     # println(V_xall)
     pyplot()
 
@@ -118,7 +158,7 @@ function plot_visible(all_nodes,node)
     ,opacity=0.2)
 
     vert = []
-    visnodes,out = visibile(node,all_nodes,1)
+    visnodes,out = visibile(node,all_nodes,2)
     for vis in visnodes
         push!(vert,[vis[1],vis[2]])
         scatter!([vis[1]],[vis[2]])

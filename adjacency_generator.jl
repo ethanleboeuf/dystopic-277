@@ -1,18 +1,15 @@
 using LightGraphs, MetaGraphs, Compose, LinearAlgebra
-using DataFrames, GraphPlot, Colors
+using DataFrames, GraphPlot, Colors,Combinatorics
 include("weights_for_graph.jl")
 """
     base_adjacency_grid
 
 Creates a basic grid of m x n size (m and n must be ints)
 """
-function base_adjacency_grid(m,n)
-    all_nodes = []
-    for ii = 1:m
-        for jj = 1:n
-            push!(all_nodes,[ii,jj])
-        end
-    end
+function base_grid(m,n)
+    all_nodes = CartesianIndices((m,n))
+    # all_nodes = [[i,j] for i in 1:m for j in 1:n]
+
     return all_nodes
 end
 """
@@ -21,34 +18,34 @@ end
 Finds neighbors for given node given full environment
 """
 function find_neighbors(node,all_nodes)
-    dirs = [[1,0],[0,1],[-1,0],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]
-    result = []
+    dirs = [CartesianIndex(i,j) for i in -1:1 for j in -1:1 if !(i==j==0)]
+    N = []
     for dir in dirs
-        poss_neighbor = [node[1]+dir[1],node[2]+dir[2]]
-        if poss_neighbor in all_nodes
-            push!(result,poss_neighbor)
+        n_p = dir+node
+        if n_p in all_nodes
+            push!(N,n_p)
         end
     end
-    return result
+    return N
 end
 
 """
-    create_adjacency
+    create_graph
 
 Given size m and n, will create a grid adjacency matrix
 """
-function create_adjacency(m,n)
-    all_nodes = base_adjacency_grid(m,n)
-    g = Graph(m*n)
-    for node in enumerate(all_nodes)
-        neighborset = find_neighbors(node[2],all_nodes)
-        for neighbori in neighborset
-            dst_pos = findall(x-> x==neighbori,all_nodes)
-            add_edge!(g,node[1],dst_pos[1])
+function create_graph(m,n)
+    V = CartesianIndices((m,n))
+    G = MetaGraph(m*n)
+    LI = LinearIndices(V)
+    for i in V
+        Nᵢ = find_neighbors(i, V)
+        for j in Nᵢ
+            add_edge!(G, LI[i], LI[j])
+            set_prop!(G, LI[i], :pos, i)
         end
     end
-    A = adjacency_matrix(g)
-    return A
+    return G
 end
 
 """
@@ -131,7 +128,7 @@ function plot_graph(G, fn)
     mn, mx = extrema(weights(G))
     line_colors = map(edges(G)) do ε
         src, dst = Tuple(ε)
-        weighted_color_mean(weights(G)[src, dst], colorant"white", colorant"black")
+        weighted_color_mean(weights(G)[src, dst], colorant"black", colorant"black")
     end
 
     nodelabel = 1:nv(G)
