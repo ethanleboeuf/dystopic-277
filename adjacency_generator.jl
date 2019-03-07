@@ -7,7 +7,7 @@ include("weights_for_graph.jl")
 Creates a basic grid of m x n size (m and n must be ints)
 """
 function base_grid(m,n)
-    all_nodes = CartesianIndices((m,n))
+    all_nodes = collect(CartesianIndices((m,n)))
     # all_nodes = [[i,j] for i in 1:m for j in 1:n]
 
     return all_nodes
@@ -45,25 +45,70 @@ function create_graph(m,n)
             set_prop!(G, LI[i], :pos, i)
         end
     end
+    set_indexing_prop!(G,:pos)
     return G
 end
 
+function remove_obstacles(G,obs)
+    obs_coord = []
+    for ob in obs
+        push!(obs_coord,set2grid(ob))
+    end
+    for coord in obs_coord
+        corners = [coord[1, 1], coord[1, end], coord[end, 1], coord[end, end]]
+        borders = [coord[1,:],coord[:,1],coord[end,:],coord[:,end]]
+        for pos in coord
+            if pos in corners
+                dst = [pos + CartesianIndex((x,y)) for x in -1:2:1 for y in -1:2:1 if (pos + CartesianIndex((x,y)) in coord)]
+                [rem_edge!(G,G[pos,:pos],G[x,:pos]) for x in dst]
+            elseif pos in vcat(borders...)
+                edge_loc = [side for side in borders if (pos in side)]
+                dst = [pos + CartesianIndex((x,y)) for x in -1:1 for y in -1:1 if ((pos + CartesianIndex((x,y)) in coord) && !(pos + CartesianIndex((x,y)) in corners) && !(x==y==0) && !(pos + CartesianIndex((x,y)) in vcat(edge_loc...)))]
+                [rem_edge!(G,G[pos,:pos],G[x,:pos]) for x in dst]
+            else
+                N = neighbors(G,G[pos,:pos])
+                for neighbori in collect(N)
+                    rem_edge!(G,G[pos,:pos],neighbori)
+                end
+            end
+        end
+
+    end
+    return G
+end
+
+function graph2gridplot(G)
+    finalplot = scatter(legend=false)
+    for i in 1:nv(G)
+        scatter!([G[i,:pos][1]], [G[i,:pos][2]],color="black")
+        for j in neighbors(G,i)
+            xpos0, ypos0 = [G[i,:pos][1], G[i,:pos][2]]
+            xn,yn = [G[j,:pos][1], G[j,:pos][2]]
+
+            plot!([xpos0, xn], [ypos0, yn],color="black")
+        end
+
+    end
+    # png(finalplot,"test.png")
+    finalplot
+end
 """
     create_weighted_graph
 
 Reads an adjacency matrix and outputs the MetaGraph associated with the optimal
 weights.
 """
-function create_weighted_graph(A)
-    Aw = find_weights(A)
-    mg = MetaGraph(A)
+function create_weighted_graph(G)
+    A = adjacency_matrix(G)
+    println(collect(A))
+    Aw = find_weights(adjacency_matrix(G))
 
-    for edge in edges(mg)
+    for edge in edges(G)
         plc = [src(edge),dst(edge)]
-        set_prop!(mg,edge,:weight,Aw[plc[1],plc[2]])
+        set_prop!(G,edge,:weight,Aw[plc[1],plc[2]])
     end
 
-    return Aw,mg
+    return G
 end
 
 """
