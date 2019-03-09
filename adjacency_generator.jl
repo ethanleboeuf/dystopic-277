@@ -1,6 +1,7 @@
 using LightGraphs, MetaGraphs, Compose, LinearAlgebra
 using DataFrames, GraphPlot, Colors,Combinatorics
 include("weights_for_graph.jl")
+gr()
 """
     base_adjacency_grid
 
@@ -57,7 +58,6 @@ function remove_obstacles(G, obs)
         borders = [coord[1, :], coord[:, 1], coord[end, :], coord[:, end]]
         for pos in coord
             for neighbori in collect(neighbors(G, G[pos, :pos]))
-                println(pos=>neighbori)
                 rem_edge!(G, G[pos, :pos], neighbori)
             end
         end
