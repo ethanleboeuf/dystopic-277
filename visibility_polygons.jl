@@ -4,14 +4,36 @@ gr()
 
 # Used to convert obstacles to grid
 function set2grid(set::Hyperrectangle)
-    l = Int.(low(set))
-    u = Int.(high(set))
-    grid = base_grid((u-l .+ 1)...)
-    for point in grid
-        grid[point] = point + CartesianIndex(Tuple(l-[1,1]))
-    end
-    return grid
+    l = Tuple(Int.(low(set) .- 1))
+    u = Tuple(Int.(high(set)))
+
+    set_points = base_grid(u .- l) .+ [CartesianIndex(l)]
 end
+
+"""
+    segment_blocked(::LineSegment, ::LazySet)
+
+Returns true if the line and set intersect in a non-trivial way, i.e. at more than one point.
+Naturally, this does not work on the intersection of two lines (since it is always at a point)
+"""
+function segment_blocked(line, obs)
+    # any(iszero, radius_hyperrectangle(obs)) && error("The obstacle is infinitesimally thin, which will
+    #                                                  break this function. obs radius: $(radius_hyperrectangle(obs))")
+
+    if line.q ∈ obs || line.p ∈ obs
+        return true
+    end
+    inter = intersection(line, obs)
+    if isempty(inter) || length(vertices_list(inter)) <= 1
+        return false
+    else
+        return true
+    end
+end
+
+get_pos(G::MetaGraph, i) = collect(Float64.(Tuple(G[i, :pos])))
+
+
 
 """
     inf_visible(G,obs)
@@ -19,53 +41,29 @@ end
 Takes in MetaGraph and array of obstacles. obs needs to have array of the Hyperrectangles
 for the obstacles
 """
-# Used to get all of the visible cells from every position assuming infinite views
-function inf_visible(G,obs)
-    V_x = []
-    for i in 1:nv(G)
-        V_x_i = inf_visible_node(G, obs, i)
-        push!(V_x, collect(V_x_i))
-    end
-    return V_x
-end
+function inf_visible(G, obstacles)
+    N = nv(G)
+    # initialize a visibility vector for each point in the graph
+    visibility = [CartesianIndex{2}[] for i in 1:N]
+    for i in 1:N
+        i_pos = get_pos(G, i)
+        for p in (i+1):N
+            p_pos = get_pos(G, p)
 
-# Used to get all of the visible cells from a single node assuming infinite views
-function inf_visible_node(G, obs, node)
-    V_x_i = []
-    # Tomer, I'm not sure how to not need these next ten lines. I'm trying to
-    # allow for both cartesian index and LI to be inputted but need to do a check.
-    # I end up repeating this code in some fashion a bunch throughout this .jl
-    if typeof(node) == CartesianIndex{2}
-        i_pos = collect(Float64.(Tuple(node)))
-        i = G[node, :pos]
-    elseif typeof(node) == Int64
-        i_pos = collect(Float64.(Tuple(get_prop(G, node, :pos))))
-        i = node
-    end
-
-    i_to_p = [(LineSegment(i_pos, collect(Float64.(Tuple(get_prop(G, p, :pos))))), p) for p in 1:nv(G) if !(i==p)]
-    for (vect, p) in i_to_p
-        inter_ob = 0
-        num_ob_inter = 0
-        p_pos = collect(Float64.(Tuple(get_prop(G, p, :pos))))
-        for (k,ob) in enumerate(obs)
-            if !is_intersection_empty(vect, ob) && length(vertices_list(intersection(vect, ob))) != 1
-                inter_ob = 1
-                break
-            elseif !is_intersection_empty(Singleton(p_pos), ob)
-                inter_ob = 1
-                break
-            end
-            if !is_intersection_empty(vect, ob) && length(vertices_list(intersection(vect, ob))) == 1
-                num_ob_inter += 1
+            vect = LineSegment(i_pos, p_pos)
+            # @show vect
+            isobstructed = any(segment_blocked(vect, o) for o in obstacles)
+            if !isobstructed
+                # If there is no obstruction,
+                # then i can see p and p can see i
+                push!(visibility[i], G[p, :pos])
+                push!(visibility[p], G[i, :pos])
             end
         end
-        if inter_ob == 0 && num_ob_inter < 2
-            push!(V_x_i,get_prop(G, p, :pos))
-        end
     end
-    return V_x_i
+    return visibility
 end
+
 
 
 """
@@ -79,26 +77,30 @@ Note: this would only be run once per env/obs pairing so it wouldn't be that big
 of a deal.
 """
 # Used to get all of the visible cells from all nodes assuming limited views
-function limited_visible(G, obs, R, nodes=[])
+function limited_visible(G, obs, R, V_x)
     L_V_x = []
     for i in 1:nv(G)
-        L_V_x_i = limited_visibility_node(G, obs, i, R)
+        L_V_x_i = limited_visibility_node(G, obs, i, R, V_x)
         push!(L_V_x, collect(L_V_x_i))
     end
     return L_V_x
 end
 
 # Used to get all of the visible cells from a single node assuming limited views
-function limited_visibility_node(G, obs, node, R)
-    V_x = inf_visible_node(G, obs, node)
+function limited_visibility_node(G, obs, node, R, V_x)
     L_V_x_i = []
-
     if typeof(node) != CartesianIndex{2}
+        V_x_i = V_x[node]
         node = get_prop(G, node, :pos)
+    else
+        i = G[node, :pos]
+        V_x_i = V_x[node]
     end
-    [push!(L_V_x_i, pos) for pos in V_x if (norm(Tuple(pos - node)) <= R) ]
+
+    [push!(L_V_x_i, pos) for pos in V_x_i if (norm(Tuple(pos - node)) <= R) ]
     return L_V_x_i
 end
+
 
 
 # Takes in visible nodes (infinite or limited) and outputs all of the visible cells
@@ -139,13 +141,13 @@ function plot_visible(G, T_V_x, nodes, obs, R = [])
     end
 
     for pos in T_V_x
-        scatter!(finalplot, Tuple(pos), color="red", markersize=5)
+        scatter!(finalplot, Tuple(pos), color="lightgreen", markersize=5)
     end
     for node in nodes
         scatter!(finalplot, Tuple(G[node,:pos]), color="blue", markersize=5)
         if !isempty(R)
             plot!(finalplot, Ball2(Float64.(collect(Tuple(G[node,:pos]))), Float64.(R)),
-                    color=:auto, 1e-3, aspectratio=1, opacity=0.5)
+                    color=:lightgreen, 1e-3, aspectratio=1, opacity=0.5)
         end
     end
     plot!(finalplot, xlims=xlims0, ylims=ylims0)
@@ -155,7 +157,7 @@ function plot_visible(G, T_V_x, nodes, obs, R = [])
 end
 
 # Example workflow. From graph and obstacles to plot. THIS MIGHT TAKE A WHILE
-# RUN DON'T SAY I DIDN'T WARN YOU. 
+# RUN DON'T SAY I DIDN'T WARN YOU.
 function main()
     R = 4
     obs = [Hyperrectangle(low=[3, 3], high=[6, 8]),Hyperrectangle(low=[4, 9], high=[8, 10]),
@@ -163,10 +165,12 @@ function main()
             Hyperrectangle(low=[3,16],high=[10,18])]
     @time G = create_graph(20, 20)
     @time G = remove_obstacles(G,obs)
-    nodes = [CartesianIndex((2, 3)),CartesianIndex((9, 2)),CartesianIndex((5,15)),
-            CartesianIndex((14,11))]
-    @time L_V_x = limited_visible(G, obs, R)
+    nodes = [CartesianIndex((2, 3)),CartesianIndex((9, 2)),CartesianIndex((5,13)),
+            CartesianIndex((14,11)),CartesianIndex((13,7))]
+    # @time V_x = inf_visible(G, obs)
+    @time L_V_x = limited_visible(G, obs, R, V_x)
     T_L_V_x, n_view = total_coverage(G, L_V_x, nodes, obs)
+    println(length(T_L_V_x)/n_view*100)
     fig = plot_visible(G, T_L_V_x, nodes, obs, R)
 end
 

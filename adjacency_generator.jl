@@ -7,10 +7,8 @@ gr()
 
 Creates a basic grid of m x n size (m and n must be ints)
 """
-function base_grid(m, n)
-    all_nodes = collect(CartesianIndices((m, n)))
-    return all_nodes
-end
+base_grid(m, n) = CartesianIndices((m, n))
+base_grid(N) = base_grid(N...)
 """
     find_neighbors
 
@@ -68,14 +66,14 @@ end
 function graph2gridplot(G, obs=[])
     finalplot = scatter(legend=false)
     for i in 1:nv(G)
-        scatter!(Tuple(G[i, :pos]), color="black")
+        scatter!(Tuple(G[i, :pos]), color="gray22", markersize=2)
         for j in neighbors(G, i)
             xpos0, ypos0 = Tuple(G[i, :pos])
             xn, yn = Tuple(G[j, :pos])
-            plot!([xpos0, xn], [ypos0, yn], color="black")
+            plot!([xpos0, xn], [ypos0, yn], color="gray56")
         end
     end
-    [plot!(finalplot, ob) for ob in obs if !isempty(obs)]
+    [plot!(finalplot, ob, color="grey22") for ob in obs if !isempty(obs)]
     png(finalplot, "test.png")
     finalplot
 end
