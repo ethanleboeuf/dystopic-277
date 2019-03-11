@@ -40,6 +40,8 @@ function create_graph(m, n)
         for j in Nᵢ
             add_edge!(G, LI[i], LI[j])
             set_prop!(G, LI[i], :pos, i)
+            dist = norm(Tuple(i - j))
+            set_prop!(G, LI[i], LI[j], :weight, dist)
         end
     end
     set_indexing_prop!(G, :pos)

@@ -1,4 +1,4 @@
-using Plots, Colors, PyCall, Compose, LazySets, Polyhedra
+using Plots, Colors, PyCall, Compose, LazySets, Polyhedra, ConcaveHull
 include("adjacency_generator.jl")
 gr()
 
@@ -156,6 +156,66 @@ function plot_visible(G, T_V_x, nodes, obs, R = [])
     return finalplot
 end
 
+
+function voronoi_cells(G, obstacles, nodes)
+    N = length(nodes)
+    V_c = [CartesianIndex{2}[] for i in 1:N]
+    geo_dist = [Float64[] for i in 1:N]
+    if typeof(nodes[1]) == CartesianIndex{2}
+        nodeidx = [G[nodes[i], :pos] for i in 1:N]
+    else
+        nodeidx = nodes
+    end
+
+
+    for i in 1:N
+        ds = dijkstra_shortest_paths(G, nodeidx[i])
+        push!(geo_dist[i], ds.dists...)
+    end
+    for j in 1:nv(G)
+        isobstacle = any(G[j, :pos] ∈ set2grid(o) for o in obstacles)
+        if !isobstacle
+            dists = []
+            for k in 1:N
+                push!(dists, geo_dist[k][j])
+            end
+            closest_node = findall(x-> x==minimum(dists), dists)
+            for i in 1:length(closest_node)
+                push!(V_c[closest_node[i]], G[j, :pos])
+            end
+        end
+    end
+
+    return V_c
+end
+
+function plot_voronoi(G, V_c, nodes, obs)
+    N = length(nodes)
+    finalplot = graph2gridplot(G,obs)
+    xlims0 = xlims(finalplot)
+    ylims0 = ylims(finalplot)
+    colorchoices = distinguishable_colors(N)
+
+    if typeof(nodes[1]) == CartesianIndex{2}
+        nodeidx = [G[nodes[i], :pos] for i in 1:N]
+    else
+        nodeidx = nodes
+    end
+
+    for i in 1:N
+        V_tup_conc = [collect(Float64.(Tuple(j) .+ (randn()/1000000))) for j in V_c[i]]
+        V_tup = [collect(Float64.(Tuple(j))) for j in V_c[i]]
+        P = concave_hull(vec(V_tup_conc))
+        plot!(P, color=colorchoices[i], fill=true, opacity=0.5)
+        for pos in V_c[i]
+            scatter!(finalplot, Tuple(pos), color=colorchoices[i], markersize=5)
+        end
+        scatter!(finalplot, Tuple(G[nodeidx[i],:pos]), color="blue", markersize=5)
+    end
+    plot!(finalplot, xlims=xlims0, ylims=ylims0)
+    png(finalplot, "test.png")
+end
+
 # Example workflow. From graph and obstacles to plot. THIS MIGHT TAKE A WHILE
 # RUN DON'T SAY I DIDN'T WARN YOU.
 function main()
@@ -170,29 +230,5 @@ function main()
     # @time V_x = inf_visible(G, obs)
     @time L_V_x = limited_visible(G, obs, R, V_x)
     T_L_V_x, n_view = total_coverage(G, L_V_x, nodes, obs)
-    println(length(T_L_V_x)/n_view*100)
     fig = plot_visible(G, T_L_V_x, nodes, obs, R)
 end
-
-# I dont' think this is needed
-#
-# function plot_visible_node(G, V_x_i, obs=[], nodenum=[], R = [])
-#     finalplot = graph2gridplot(G,obs)
-#     xlims0 = xlims(finalplot)
-#     ylims0 = ylims(finalplot)
-#     if !isempty(R)
-#         plot!(finalplot, Ball2(Float64.(collect(Tuple(G[nodenum,:pos]))), Float64.(R)),
-#                 color="green", 1e-3, aspectratio=1, opacity=0.5)
-#     end
-#     if !isempty(nodenum)
-#         scatter!(finalplot, Tuple(G[nodenum,:pos]), color="blue", markersize=20)
-#     end
-#
-#     for pos in V_x_i
-#         scatter!(finalplot, Tuple(pos), color="red", markersize=20)
-#     end
-#     plot!(finalplot, xlims=xlims0, ylims=ylims0)
-#     finalplot
-#     png(finalplot, "test.png")
-#     return finalplot
-# end
