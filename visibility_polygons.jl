@@ -31,7 +31,8 @@ function segment_blocked(line, obs)
     end
 end
 
-get_pos(G::MetaGraph, i) = collect(Float64.(Tuple(G[i, :pos])))
+get_pos_tup(G::MetaGraph, i) = Tuple(G[i, :pos])
+get_pos_vec(G::MetaGraph, i) = collect(Tuple(G[i, :pos]))
 
 
 
@@ -46,9 +47,9 @@ function inf_visible(G, obstacles)
     # initialize a visibility vector for each point in the graph
     visibility = [CartesianIndex{2}[] for i in 1:N]
     for i in 1:N
-        i_pos = get_pos(G, i)
+        i_pos = Float64.(get_pos_vec(G, i))
         for p in (i+1):N
-            p_pos = get_pos(G, p)
+            p_pos = Float64.(get_pos_vec(G, p))
 
             vect = LineSegment(i_pos, p_pos)
             # @show vect
