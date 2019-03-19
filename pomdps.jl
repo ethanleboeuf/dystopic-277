@@ -1,5 +1,6 @@
 
-using StaticArrays, LightGraphs, MetaGraphs, LazySets, Random, POMDPs, Combinatorics
+using StaticArrays, LightGraphs, MetaGraphs,
+LazySets, Random, POMDPs, Combinatorics, Parameters
 include("ndgrid.jl")
 #=
 S :: vector of agents and pos of Adversary
@@ -18,7 +19,7 @@ R ::
 =#
 
 const Vec2 = SVector{2, Int64}
-const AGENT_ACTIONS = [Vec2(i, j) for i in -1:1 for j in -1:1 if !(i==j==0)]
+const AGENT_ACTIONS = [Vec2(i, j) for i in -1:1 for j in -1:1]
 ############################################
 #########  Environment -related  ###########
 ############################################
@@ -29,13 +30,9 @@ struct Environment
     G::MetaGraph
 
     function Environment(size::NTuple{2, Int}, obstacles::Vector{Hyperrectangle}, R::Int64)
-
         G = create_graph(size...)
         remove_obstacles(G, obstacles)
-
-        inf_vis = inf_visibile(G, obstacles)
-        visibility = limited_visible(G, inf_vis)
-
+        visibility = limited_visible(G, inf_visibile(G, obstacles))
         return new(size, obstacles, visibility, G)
     end
 end
@@ -45,11 +42,21 @@ graph(env::Environment) = env.G
 obstacles(env::Environment) = env.obstacles
 
 
-Base.rand(G::AbstractGraph, rng::AbstractRNG = Random.GLOBAL_RNG) = rand(rng, 1:nv(G))
-function rand_pos(G::AbstractGraph, rng)
-    n = rand(G, rng)
-    get_pos_tup(G, n)
+Base.rand(G::AbstractGraph, rng::AbstractRNG = Random.GLOBAL_RNG) = rand(1:nv(G))
+function rand_pos(G::AbstractGraph, rng::AbstractRNG = Random.GLOBAL_RNG)
+    n = rand(rng, G)
+    Vec2(get_pos_tup(G, n))
 end
+rand_pos(G::AbstractGraph) = rand_pos(Random.GLOBAL_RNG, G)
+
+function rand_pos(G::AbstractGraph, n::Integer, rng::AbstractRNG)
+    points = Set{Vec2}()
+    while length(points) < n
+        push!(points, rand_pos(G, rng))
+    end
+    return points
+end
+
 
 struct Region
     center::Tuple # maybe this one isn't necessary
@@ -60,20 +67,23 @@ end
 ####################################################
 #################### S, A, O #######################
 ####################################################
-mutable struct Agent
+struct Agent
     pos::Vec2
     partition::Region
 end
 
-partition(ag::Agent) = ag.partition
-position(ag::Agent)  = ag.pos
+partition(ag::Agent) = ag.partition # not sure how much this will be used.
 pos(ag::Agent)       = ag.pos
 
 struct SNState
     patrollers::Vector{Agent}
     adversaries::Vector{Vec2}
 end
-SNAction = Union{Vector{Vec2}, Symbol}
+
+struct Alarm
+    guess::Vec2
+end
+SNAction = Union{Vector{Vec2}, Alarm}
 
 struct SNObs
     adversaries::Vector{Vec2}
@@ -89,11 +99,12 @@ adversaries(s::SNState) = s.adversaries
 
 abstract type AdversaryModel end
 
-struct Random <: AdversaryModel end
+struct RandomActions <: AdversaryModel end
 struct MaximizeDistance <: AdversaryModel end
-struct KnowsBelief{APB<:AbstractParticleBelief} <: AdversaryModel
-    belief::APB
-end
+struct MaximizeSafety <: AdversaryModel end
+# struct KnowsBelief{APB<:AbstractParticleBelief} <: AdversaryModel
+#     belief::APB
+# end
 # There was another one wasn't there?
 
 function heuristic_update(::MaximizeDistance, adv::Agent)
@@ -103,21 +114,21 @@ end
 ####################################################
 ############# POMDP type + functions ###############
 ####################################################
-mutable struct SkyNet <: POMDP{SNState, SNAction, SNObs}
-    env::Environment
-    partition_points::Vector{Vector{Tuple}} # maybe don't need
-    partitions::Vector{Region}              # maybe don't need
-    max_adversaries::Int8                   # maybe don't need
-    intrusion_prob::Float64                 # maybe don't need
-    R::Int64
-    adversarial_model::AdversaryModel
-
-    SkyNet() = new()
+@with_kw mutable struct SkyNet <: POMDP{SNState, SNAction, SNObs}
+    env::Environment                    = Environment((20, 20), Hyperrectangle(low = [4.0, 4.0], high = [8.0, 8.0]), R)
+    partition_points::Vector{Vec2}      = rand_pos(graph(env), n_agents) # maybe don't need
+    partitions::Vector{Region}          = voronoi_cells(graph(env), obstacles(env), partition_points)
+    max_adversaries::Int8               = 1      # maybe don't need
+    intrusion_prob::Float64             = 1.0    # maybe don't need
+    R::Int64                            = 4
+    adversarial_model::AdversaryModel   = RandomActions
+    n_agents::Int8                      = 4
+    n_adversaries::Int8                 = 1      # maybe don't need
 end
 
-environment(p::SkyNet) = p.env
-graph(p::SkyNet) = p.env.G
-obstacles(p::SkyNet) = p.env.obstacles
+environment(p::SkyNet)       = p.env
+graph(p::SkyNet)             = p.env.G
+obstacles(p::SkyNet)         = p.env.obstacles
 adversarial_model(p::SkyNet) = p.adversarial_model
 
 """
@@ -157,10 +168,10 @@ end
 function generate_s(p::SkyNet, s::SNState, a::SNAction, rng::AbstractRNG)
 
     if isterminal(s)
-        error("State is terminal in generate_s. Why is this happening? $s")
+        error("State is terminal in generate_s. Why is this happening? \ns = $s, \n a = $a")
         # return s
     end
-    if a == :alarm
+    if a isa Alarm
         out_of_bounds_pats = patrollers(s) .+ Vec2(size(environment(p)))
         return SNState(out_of_bounds_pats, adversaries(s))
     end
@@ -175,6 +186,7 @@ function generate_s(p::SkyNet, s::SNState, a::SNAction, rng::AbstractRNG)
 end
 
 
+# NOTE or come up with observation function
 function generate_o(p::SkyNet, s::SNState, rng::AbstractRNG)
     noise = rand(p.d, rng)
 
@@ -183,5 +195,22 @@ end
 
 
 function reward(p::SkyNet, s::SNState, a::SNAction, sp::SNState)
-
+    # subtract some points for each adversary in the scene.
+    r = -20.0 * length(adversaries(s))
+    if a isa Alarm
+        # Alarms are very costly.
+        r -= 1000.0
+        # If we guess the right location, we don't pay a price!
+        # If we're close we pay half price
+        dist = norm.([a.guess] .- adversaries(s))
+        if any(dist .== 0)
+            r += 1000.0
+        elseif any(dist < sqrt(2)) # sqrt is diagonal distance
+            r += 500.0
+        end
+    else
+        travelled = norm.(a)  # gives, 0, 1, or sqrt(2) depeding on direction of travel
+        r -= 5*sum(travelled)
+    end
+    return r
 end
