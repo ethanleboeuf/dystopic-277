@@ -1,4 +1,5 @@
-using Plots, Colors, PyCall, Compose, LazySets, Polyhedra, ConcaveHull
+using Plots, Colors, Compose, LazySets, Polyhedra, ConcaveHull
+# using PyCall
 include("adjacency_generator.jl")
 gr()
 
@@ -158,14 +159,18 @@ function plot_visible(G, T_V_x, nodes, obs, R = [])
 end
 
 
+Base.CartesianIndex(s::SVector) = CartesianIndex(Tuple(s))
+
 function voronoi_cells(G, obstacles, nodes)
     N = length(nodes)
     V_c = [CartesianIndex{2}[] for i in 1:N]
     geo_dist = [Float64[] for i in 1:N]
     if typeof(nodes[1]) == CartesianIndex{2}
-        nodeidx = [G[nodes[i], :pos] for i in 1:N]
-    else
+        nodeidx = [G[n, :pos] for n in nodes]
+    elseif eltype(nodes) <: Vector{<:Number}
         nodeidx = nodes
+    elseif eltype(nodes) <: SArray
+        nodeidx = [G[CartesianIndex(c), :pos] for c in nodes]
     end
 
 
