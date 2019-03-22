@@ -1,6 +1,6 @@
 using LightGraphs, MetaGraphs, Compose, LinearAlgebra
 using DataFrames, GraphPlot, Colors,Combinatorics
-include("weights_for_graph.jl")
+# include("weights_for_graph.jl")
 gr()
 """
     base_adjacency_grid

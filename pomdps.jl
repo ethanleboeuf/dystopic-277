@@ -24,10 +24,10 @@ R ::
 
 const Vec2 = SVector{2, Int64}
 const AGENT_ACTIONS = [Vec2(i, j) for i in -1:1 for j in -1:1]
-const SENSOR_MODEL = Dict(:o1s1 => BoolDistribution(0.8),
-                          :o1s0 => BoolDistribution(0.2))
+const SENSOR_MODEL = Dict(:o1s1 => BoolDistribution(0.9),
+                          :o1s0 => BoolDistribution(0.1))
 # Just an alias
-const Region = Vector{Tuple}
+const Region = Vector{Vec2}
 
 ############################################
 #########  Environment -related  ###########
@@ -103,7 +103,7 @@ struct Alarm
 end
 
 SNAction = Union{Vector{Vec2}, Alarm}
-SNObservation = BitArray
+SNObservation = Vector{Pair{Vec2, Bool}}
 
 agents(s::SNState)      = (s.patrollers, s.adversaries)
 patrollers(s::SNState)  = s.patrollers
@@ -203,28 +203,35 @@ end
 
 
 
-function actions(p::SkyNet)
-    println("wrong one")
-    agentwise_action_space = [AGENT_ACTIONS for i in 1:p.n_agents]
-    A = tuple.(vec.(ndgrid(agentwise_action_space...))...)
-    return SNAction[collect.(A); alarm_actions(p)]
-end
+# function actions(p::SkyNet)
+#     println("wrong one")
+#     agentwise_action_space = [AGENT_ACTIONS for i in 1:p.n_agents]
+#     A = tuple.(vec.(ndgrid(agentwise_action_space...))...)
+#     return SNAction[collect.(A); alarm_actions(p)]
+# end
+
+# function alarm_actions(p::SkyNet)
+#     println("wrong one")
+#     G = graph(p)
+#     [Alarm(Vec2(get_pos_tup(G, i))) for i in vertices(G)]
+# end
 
 function actions(p::SkyNet, s::SNState)
     agentwise_action_space = actions.([p], patrollers(s))
-    A = tuple.(vec.(ndgrid(agentwise_action_space...))...)
-    return SNAction[collect.(A); alarm_actions(p, s)]
+    moves = tuple.(vec.(ndgrid(agentwise_action_space...))...)
+    alarms = alarm_actions(p, s)
+    A = SNAction[collect.(moves); alarms]
+    println("A size: $(length(A))")
+    println("$(length(moves)) moves")
+    println("$(length(alarms)) alarms")
+    A
 end
 
 function actions(p::SkyNet, s::Agent)
     x0 = pos(s)
-    filter(dir->isvalid_position(s, x0+dir), AGENT_ACTIONS)
+    A = filter(dir->isvalid_position(s, x0+dir), AGENT_ACTIONS)
 end
 
-function alarm_actions(p::SkyNet)
-    G = graph(p)
-    [Alarm(Vec2(get_pos_tup(G, i))) for i in vertices(G)]
-end
 function alarm_actions(p::SkyNet, s::SNState)
     env = environment(p)
     # can only ring an alarm of a cell you can see
@@ -246,6 +253,8 @@ function generate_s(p::SkyNet, s::SNState, a::SNAction, rng::AbstractRNG)
         return SNState(out_of_bounds_pats, adversaries(s))
     end
 
+    # @show a
+
     pats, advs = agents(s)
     updated_pats = pats .+ a
     # update adversary's position somehow:
@@ -257,44 +266,40 @@ end
 
 function obs_weight(p::SkyNet, s::SNState, a::SNAction, sp::SNState, o::SNObservation)
 
-    if isterminal(p, sp)
-        return 1.0
-    end
-
     advs = adversaries(s)
     prob = 1.0
-    for oᵢ in o
-        if oᵢ ∈ advs
-            p_accurate = SENSOR_MODEL[:o1s1].p
-        else
-            p_accurate = 1 - SENSOR_MODEL[:o1s0].p
-        end
+    # if a isa Alarm
+        # return 1.0 * (a.guess ∈ advs)
+        # return 0.5
+    # end
 
-        p_accurate = oᵢ ? p_accurate : 1-p_accurate
+    for oᵢ in o
+        pos, val = oᵢ
+        isin = pos ∈ advs ? :o1s1 : :o1s0
+        p_accurate = pdf(SENSOR_MODEL[isin], val)
 
         prob *= p_accurate
     end
+    # @show prob
     return prob
 end
 
 function generate_o(p::SkyNet, s::SNState, a::SNAction, sp::SNState, rng::AbstractRNG)
-
-    patrollers, adversaries = agents(sp)
-
     # println(pos.(patrollers))
     # println("adv: ", adversaries)
+    # println(a)
+    o = Vector{Pair{Vec2, Bool}}()
     if a isa Alarm
         # println(a)
-        return BitArray(true)
+        return o
+        # sp = s
     end
-
-    o = BitArray(undef, 0)
-
+    patrollers, adversaries = agents(sp)
     for pat in patrollers
         visibles = visibility(env(p), pos(pat))
         for v in visibles
             isin = Vec2(v) ∈ adversaries ? :o1s1 : :o1s0
-            push!(o, rand(rng, SENSOR_MODEL[isin]))
+            push!(o, Vec2(v)=>rand(rng, SENSOR_MODEL[isin]))
         end
     end
     return o
@@ -317,21 +322,24 @@ end
 
 function reward(p::SkyNet, s::SNState, a::SNAction, sp::SNState)
     # subtract some points for each adversary in the scene.
-    r = -100.0 * length(adversaries(s))
+    # @show typeof(a)
+    r = -20.0 * length(adversaries(s))
     if a isa Alarm
         # Alarms are very costly.
-        r -= 1000.0
-        # If we guess the right location, we don't pay a price!
-        # If we're close we pay half price
+        r -= 10000.0
         dists = norm.([a.guess] .- adversaries(s))
         if any(dists .== 0)
-            r += 1000.0
+            r += 600.0
         elseif any(dists .<= 1.415) # √2 is diagonal distance
-            r += 500.0
+            r += 300.0
         end
     else
         travelled = norm.(a)  # gives, 0, 1, or √2 depeding on direction of travel
-        r -= 1*sum(travelled)
+        r -= 10*sum(travelled)
+
+        old_distance_to_adversary = norm.(pos.(patrollers(s)) .- adversaries(s))
+        new_distance_to_adversary = norm.(pos.(patrollers(sp)) .- adversaries(sp))
+        r += 200*maximum(new_distance_to_adversary .- old_distance_to_adversary)
     end
     return r
 end
