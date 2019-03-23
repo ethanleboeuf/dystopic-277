@@ -6,21 +6,7 @@ include("ndgrid.jl")
 
 import POMDPs: actions, states, discount, isterminal, generate_s, generate_o, reward
 import POMDPModelTools: obs_weight
-#=
-S :: vector of agents and pos of Adversary
-A :: a rearrangement of the agents or an Alarm
 
-O ::
-    an adversarial position,
-    noisy proportional to distance,
-    every unobserved node get's a prob
-
-R ::
-    seeing Adversary (closer is better),
-    minimize uncertainty,
-    maximize overall overage,
-    maximize agent utilization
-=#
 
 const Vec2 = SVector{2, Int64}
 const AGENT_ACTIONS = [Vec2(i, j) for i in -1:1 for j in -1:1]
@@ -70,7 +56,7 @@ function rand_pos(G::AbstractGraph, rng::AbstractRNG = Random.GLOBAL_RNG)
 end
 rand_pos(G::AbstractGraph) = rand_pos(G, Random.GLOBAL_RNG)
 
-function rand_pos(G::AbstractGraph, n::Integer, rng::AbstractRNG = Random.GLOBAL_RNG)
+function rand_pos(G::AbstractGraph, n::Integer, rng::AbstractRNG = Random.GLOBAL_RNG; replace = false)
     points = Set{Vec2}()
     while length(points) < n
         push!(points, rand_pos(G, rng))
@@ -114,12 +100,14 @@ adversaries(s::SNState) = s.adversaries
 ################ Adversary related #################
 ####################################################
 
+# need to define these before the pomdp type, even
+# though their implementations only happen later on
 abstract type AdversaryModel end
 
 struct RandomActions <: AdversaryModel end
 struct MaximizeDistance <: AdversaryModel end
 struct MaximizeSafety <: AdversaryModel end
-# struct KnowsBelief{APB<:AbstractParticleBelief} <: AdversaryModel
+# struct Omniscient{APB<:AbstractParticleBelief} <: AdversaryModel
 #     belief::APB
 # end
 # There was another one wasn't there?
@@ -128,6 +116,18 @@ struct MaximizeSafety <: AdversaryModel end
 ####################################################
 ############# POMDP type + functions ###############
 ####################################################
+"""
+S :: vector of agents and pos of Adversary/s
+A :: a rearrangement of the agents or an Alarm
+
+O :: A boolean for each node being observed
+
+R ::
+    seeing Adversary (closer is better),
+    minimize uncertainty,
+    maximize overall overage,
+    maximize agent utilization
+"""
 @with_kw mutable struct SkyNet <: POMDP{SNState, SNAction, SNObservation}
     size::NTuple{2, Int64}         = (20, 20)
     R::Int64                       = 3
@@ -203,18 +203,6 @@ end
 
 
 
-# function actions(p::SkyNet)
-#     println("wrong one")
-#     agentwise_action_space = [AGENT_ACTIONS for i in 1:p.n_agents]
-#     A = tuple.(vec.(ndgrid(agentwise_action_space...))...)
-#     return SNAction[collect.(A); alarm_actions(p)]
-# end
-
-# function alarm_actions(p::SkyNet)
-#     println("wrong one")
-#     G = graph(p)
-#     [Alarm(Vec2(get_pos_tup(G, i))) for i in vertices(G)]
-# end
 
 function actions(p::SkyNet, s::SNState)
     agentwise_action_space = actions.([p], patrollers(s))
@@ -244,6 +232,8 @@ end
 
 function generate_s(p::SkyNet, s::SNState, a::SNAction, rng::AbstractRNG)
 
+    # @show a
+
     if isterminal(p, s)
         error("State is terminal in generate_s. Why is this happening? \ns = $s, \n a = $a")
         # return s
@@ -253,7 +243,6 @@ function generate_s(p::SkyNet, s::SNState, a::SNAction, rng::AbstractRNG)
         return SNState(out_of_bounds_pats, adversaries(s))
     end
 
-    # @show a
 
     pats, advs = agents(s)
     updated_pats = pats .+ a
@@ -297,27 +286,14 @@ function generate_o(p::SkyNet, s::SNState, a::SNAction, sp::SNState, rng::Abstra
     patrollers, adversaries = agents(sp)
     for pat in patrollers
         visibles = visibility(env(p), pos(pat))
-        for v in visibles
-            isin = Vec2(v) ∈ adversaries ? :o1s1 : :o1s0
-            push!(o, Vec2(v)=>rand(rng, SENSOR_MODEL[isin]))
+        for v in Vec2.(visibles)
+            positive_rate = v ∈ adversaries ? :o1s1 : :o1s0
+            detected = rand(rng, SENSOR_MODEL[positive_rate])
+            push!(o, v=>detected)
         end
     end
     return o
 end
-
-# function observation(p::SkyNet, sp::SNState, rng::AbstractRNG)
-#     patrollers, adversaries = agents(sp)
-
-#     pat = first(patrollers)
-#     adv = first(adversaries)
-
-#     for node in sensor_region(pat)
-#         prob = rand(rng, sensor_distr(p))
-#         if adv == node
-#         else
-#         end
-#     end
-# end
 
 
 function reward(p::SkyNet, s::SNState, a::SNAction, sp::SNState)
@@ -328,6 +304,7 @@ function reward(p::SkyNet, s::SNState, a::SNAction, sp::SNState)
         # Alarms are very costly.
         r -= 10000.0
         dists = norm.([a.guess] .- adversaries(s))
+        # @show dists
         if any(dists .== 0)
             r += 600.0
         elseif any(dists .<= 1.415) # √2 is diagonal distance
@@ -336,10 +313,10 @@ function reward(p::SkyNet, s::SNState, a::SNAction, sp::SNState)
     else
         travelled = norm.(a)  # gives, 0, 1, or √2 depeding on direction of travel
         r -= 10*sum(travelled)
-
-        old_distance_to_adversary = norm.(pos.(patrollers(s)) .- adversaries(s))
-        new_distance_to_adversary = norm.(pos.(patrollers(sp)) .- adversaries(sp))
-        r += 200*maximum(new_distance_to_adversary .- old_distance_to_adversary)
+        # @show r
+        # old_distance_to_adversary = norm.(pos.(patrollers(s)) .- adversaries(s))
+        # new_distance_to_adversary = norm.(pos.(patrollers(sp)) .- adversaries(sp))
+        # r += 200*maximum(new_distance_to_adversary .- old_distance_to_adversary)
     end
     return r
 end
